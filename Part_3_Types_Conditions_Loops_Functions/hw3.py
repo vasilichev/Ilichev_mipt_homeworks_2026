@@ -120,13 +120,6 @@ def parse_date_parts(parts: list[str]) -> DateTuple | None:
 
 
 def extract_date(maybe_dt: str) -> DateTuple | None:
-    """
-    Парсит дату формата DD-MM-YYYY из строки.
-
-    :param str maybe_dt: Проверяемая строка
-    :return: typle формата (день, месяц, год) или None, если дата неправильная.
-    :rtype: tuple[int, int, int] | None
-    """
     date_parts = maybe_dt.split("-")
     if len(date_parts) != DATE_PARTS_COUNT:
         return None
