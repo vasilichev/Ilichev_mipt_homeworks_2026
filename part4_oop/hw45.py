@@ -115,12 +115,15 @@ class LFUPolicy(Policy[K]):
         return 1
 
     def _find_least_used_key(self) -> K:
-        counters_iterator = iter(self._key_counter.items())
-        key_to_evict, min_counter = next(counters_iterator)
-        for key, counter in counters_iterator:
-            if counter < min_counter:
+        key_to_evict: K | None = None
+        min_counter = 0
+        for key, counter in self._key_counter.items():
+            if key_to_evict is None or counter < min_counter:
                 key_to_evict = key
                 min_counter = counter
+        if key_to_evict is None:
+            msg = "Cannot evict from empty policy"
+            raise ValueError(msg)
         return key_to_evict
 
 
