@@ -41,6 +41,7 @@ class FIFOPolicy(Policy[K]):
         if len(self._order) > self.capacity:
             return self._order[0]
         return None
+
     get_key_to_evict = key_to_evict
 
     def remove_key(self, key: K) -> None:
@@ -69,6 +70,7 @@ class LRUPolicy(Policy[K]):
         if len(self._order) > self.capacity:
             return self._order[0]
         return None
+
     get_key_to_evict = key_to_evict
 
     def remove_key(self, key: K) -> None:
@@ -100,6 +102,7 @@ class LFUPolicy(Policy[K]):
         if len(self._key_counter) > self.capacity:
             return self._find_least_used_key()
         return None
+
     get_key_to_evict = key_to_evict
 
     def remove_key(self, key: K) -> None:
