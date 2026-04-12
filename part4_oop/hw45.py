@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 from part4_oop.interfaces import Cache, HasCache, Policy, Storage
 
@@ -13,19 +13,19 @@ class DictStorage(Storage[K, V]):
     _data: dict[K, V] = field(default_factory=dict, init=False)
 
     def set(self, key: K, value: V) -> None:
-        raise NotImplementedError
+        self._data[key] = value
 
     def get(self, key: K) -> V | None:
-        raise NotImplementedError
+        return self._data.get(key)
 
     def exists(self, key: K) -> bool:
-        raise NotImplementedError
+        return key in self._data
 
     def remove(self, key: K) -> None:
-        raise NotImplementedError
+        self._data.pop(key, None)
 
     def clear(self) -> None:
-        raise NotImplementedError
+        self._data.clear()
 
 
 @dataclass
@@ -34,20 +34,26 @@ class FIFOPolicy(Policy[K]):
     _order: list[K] = field(default_factory=list, init=False)
 
     def register_access(self, key: K) -> None:
-        raise NotImplementedError
+        if key not in self._order:
+            self._order.append(key)
 
-    def get_key_to_evict(self) -> K | None:
-        raise NotImplementedError
+    def key_to_evict(self) -> K | None:
+        if len(self._order) > self.capacity:
+            return self._order[0]
+        return None
+
+    get_key_to_evict = key_to_evict
 
     def remove_key(self, key: K) -> None:
-        raise NotImplementedError
+        if key in self._order:
+            self._order.remove(key)
 
     def clear(self) -> None:
-        raise NotImplementedError
+        self._order.clear()
 
     @property
     def has_keys(self) -> bool:
-        raise NotImplementedError
+        return bool(self._order)
 
 
 @dataclass
@@ -56,20 +62,27 @@ class LRUPolicy(Policy[K]):
     _order: list[K] = field(default_factory=list, init=False)
 
     def register_access(self, key: K) -> None:
-        raise NotImplementedError
+        if key in self._order:
+            self._order.remove(key)
+        self._order.append(key)
 
-    def get_key_to_evict(self) -> K | None:
-        raise NotImplementedError
+    def key_to_evict(self) -> K | None:
+        if len(self._order) > self.capacity:
+            return self._order[0]
+        return None
+
+    get_key_to_evict = key_to_evict
 
     def remove_key(self, key: K) -> None:
-        raise NotImplementedError
+        if key in self._order:
+            self._order.remove(key)
 
     def clear(self) -> None:
-        raise NotImplementedError
+        self._order.clear()
 
     @property
     def has_keys(self) -> bool:
-        raise NotImplementedError
+        return bool(self._order)
 
 
 @dataclass
@@ -78,20 +91,46 @@ class LFUPolicy(Policy[K]):
     _key_counter: dict[K, int] = field(default_factory=dict, init=False)
 
     def register_access(self, key: K) -> None:
-        raise NotImplementedError
+        current_counter = self._key_counter.get(key)
+        if current_counter is not None:
+            self._key_counter[key] = current_counter + 1
+            return
 
-    def get_key_to_evict(self) -> K | None:
-        raise NotImplementedError
+        self._key_counter[key] = self._get_initial_counter()
+
+    def key_to_evict(self) -> K | None:
+        if len(self._key_counter) > self.capacity:
+            return self._find_least_used_key()
+        return None
+
+    get_key_to_evict = key_to_evict
 
     def remove_key(self, key: K) -> None:
-        raise NotImplementedError
+        self._key_counter.pop(key, None)
 
     def clear(self) -> None:
-        raise NotImplementedError
+        self._key_counter.clear()
 
     @property
     def has_keys(self) -> bool:
-        raise NotImplementedError
+        return bool(self._key_counter)
+
+    def _get_initial_counter(self) -> int:
+        if len(self._key_counter) >= self.capacity and self._key_counter:
+            return min(self._key_counter.values())
+        return 1
+
+    def _find_least_used_key(self) -> K:
+        key_to_evict: K | None = None
+        min_counter = 0
+        for key, counter in self._key_counter.items():
+            if key_to_evict is None or counter < min_counter:
+                key_to_evict = key
+                min_counter = counter
+        if key_to_evict is None:
+            msg = "Cannot evict from empty policy"
+            raise ValueError(msg)
+        return key_to_evict
 
 
 class MIPTCache(Cache[K, V]):
@@ -100,21 +139,54 @@ class MIPTCache(Cache[K, V]):
         self.policy = policy
 
     def set(self, key: K, value: V) -> None:
-        raise NotImplementedError
+        self.policy.register_access(key)
+        key_to_evict = self.policy.get_key_to_evict()
+        if key_to_evict is not None:
+            self.storage.remove(key_to_evict)
+            self.policy.remove_key(key_to_evict)
+        self.storage.set(key, value)
 
     def get(self, key: K) -> V | None:
-        raise NotImplementedError
+        self.policy.register_access(key)
+        return self.storage.get(key)
 
     def exists(self, key: K) -> bool:
-        raise NotImplementedError
+        self.policy.register_access(key)
+        return self.storage.exists(key)
 
     def remove(self, key: K) -> None:
-        raise NotImplementedError
+        self.storage.remove(key)
+        self.policy.remove_key(key)
 
     def clear(self) -> None:
-        raise NotImplementedError
+        self.storage.clear()
+        self.policy.clear()
 
 
 class CachedProperty[V]:
-    def __init__(self, func: Callable[..., V]) -> None: ...
-    def __get__(self, instance: HasCache[Any, Any] | None, owner: type) -> V: ...  # type: ignore[empty-body]
+    def __init__(self, func: Callable[..., V]) -> None:
+        self.func = func
+
+    @overload
+    def __get__(self, instance: None, owner: type[Any]) -> "CachedProperty[V]": ...
+
+    @overload
+    def __get__(self, instance: HasCache[str, V], owner: type[Any]) -> V: ...
+
+    def __get__(
+        self,
+        instance: HasCache[str, V] | None,
+        owner: type[Any],
+    ) -> "CachedProperty[V] | V":
+        if instance is None:
+            return self
+
+        cache_key = self.func.__name__
+        if instance.cache.exists(cache_key):
+            cached_value = instance.cache.get(cache_key)
+            if cached_value is not None:
+                return cached_value
+
+        value = self.func(instance)
+        instance.cache.set(cache_key, value)
+        return value
